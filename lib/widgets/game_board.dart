@@ -5,6 +5,10 @@ import 'dart:math';
 class GameBoard extends StatefulWidget {
   final int resetKey;
 
+  final int rows;
+  final int cols;
+  final int mineCount;
+
   final VoidCallback onLose;
   final VoidCallback onWin;
   final VoidCallback onStart;
@@ -12,6 +16,9 @@ class GameBoard extends StatefulWidget {
   const GameBoard({
     super.key,
     required this.resetKey,
+    required this.rows,
+    required this.cols,
+    required this.mineCount,
     required this.onLose,
     required this.onWin,
     required this.onStart,
@@ -22,13 +29,10 @@ class GameBoard extends StatefulWidget {
 }
 
 class _GameBoardState extends State<GameBoard> {
-  static const int rows = 9;
-  static const int cols = 9;
-
   late List<List<Tile>> board;
   bool gameOver = false;
 
-  int remainingSafe = rows * cols - 10;
+  late int remainingSafe;
 
   @override
   void initState() {
@@ -40,21 +44,30 @@ class _GameBoardState extends State<GameBoard> {
   void didUpdateWidget(covariant GameBoard oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.resetKey != widget.resetKey) {
+    if (oldWidget.resetKey != widget.resetKey ||
+        oldWidget.rows != widget.rows ||
+        oldWidget.cols != widget.cols ||
+        oldWidget.mineCount != widget.mineCount) {
       _initGame();
-      gameOver = false;
-      remainingSafe = rows * cols - 10;
       setState(() {});
     }
   }
 
+  // ---------------- INIT GAME ----------------
   void _initGame() {
     board = List.generate(
-      rows,
-      (_) => List.generate(cols, (_) => Tile()),
+      widget.rows,
+      (_) => List.generate(widget.cols, (_) => Tile()),
     );
 
-    _placeMines(10);
+    gameOver = false;
+
+    final maxMines = widget.rows * widget.cols - 1;
+    final safeMineCount = widget.mineCount.clamp(0, maxMines);
+
+    remainingSafe = widget.rows * widget.cols - safeMineCount;
+
+    _placeMines(safeMineCount);
     _calculateAdjacentMines();
   }
 
@@ -63,8 +76,8 @@ class _GameBoardState extends State<GameBoard> {
     int placed = 0;
 
     while (placed < mineCount) {
-      int r = random.nextInt(rows);
-      int c = random.nextInt(cols);
+      int r = random.nextInt(widget.rows);
+      int c = random.nextInt(widget.cols);
 
       if (!board[r][c].isMine) {
         board[r][c].isMine = true;
@@ -74,8 +87,8 @@ class _GameBoardState extends State<GameBoard> {
   }
 
   void _calculateAdjacentMines() {
-    for (int r = 0; r < rows; r++) {
-      for (int c = 0; c < cols; c++) {
+    for (int r = 0; r < widget.rows; r++) {
+      for (int c = 0; c < widget.cols; c++) {
         if (board[r][c].isMine) continue;
 
         int count = 0;
@@ -86,9 +99,9 @@ class _GameBoardState extends State<GameBoard> {
             int nc = c + dc;
 
             if (nr >= 0 &&
-                nr < rows &&
+                nr < widget.rows &&
                 nc >= 0 &&
-                nc < cols &&
+                nc < widget.cols &&
                 board[nr][nc].isMine) {
               count++;
             }
@@ -100,6 +113,7 @@ class _GameBoardState extends State<GameBoard> {
     }
   }
 
+  // ---------------- GAME LOGIC ----------------
   void _revealAllMines() {
     for (var row in board) {
       for (var tile in row) {
@@ -107,6 +121,13 @@ class _GameBoardState extends State<GameBoard> {
           tile.isRevealed = true;
         }
       }
+    }
+  }
+
+  void _checkWin() {
+    if (remainingSafe <= 0 && !gameOver) {
+      gameOver = true;
+      widget.onWin();
     }
   }
 
@@ -124,11 +145,14 @@ class _GameBoardState extends State<GameBoard> {
           int nr = cr + dr;
           int nc = cc + dc;
 
-          if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+          if (nr < 0 ||
+              nr >= widget.rows ||
+              nc < 0 ||
+              nc >= widget.cols) continue;
 
           final tile = board[nr][nc];
 
-          if (tile.isRevealed || tile.isMine) continue;
+          if (tile.isRevealed || tile.isMine || tile.isFlagged) continue;
 
           tile.isRevealed = true;
           remainingSafe--;
@@ -138,13 +162,6 @@ class _GameBoardState extends State<GameBoard> {
           }
         }
       }
-    }
-  }
-
-  void _checkWin() {
-    if (remainingSafe <= 0 && !gameOver) {
-      gameOver = true;
-      widget.onWin();
     }
   }
 
@@ -177,56 +194,118 @@ class _GameBoardState extends State<GameBoard> {
     });
   }
 
+  void _toggleFlag(int r, int c) {
+    if (gameOver) return;
+
+    setState(() {
+      final tile = board[r][c];
+
+      if (tile.isRevealed) return;
+
+      tile.isFlagged = !tile.isFlagged;
+    });
+  }
+
+  // ---------------- TILE UI ----------------
+  Widget _buildTile(Tile tile, double size) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Center(
+          child: tile.isRevealed
+              ? (tile.isMine
+                  ? Text('💣', style: TextStyle(fontSize: size))
+                  : (tile.adjacentMines > 0
+                      ? Text(
+                          '${tile.adjacentMines}',
+                          style: TextStyle(
+                            fontSize: size * 0.7,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        )
+                      : const SizedBox.shrink()))
+              : tile.isFlagged
+                  ? Text('🚧', style: TextStyle(fontSize: size * 0.8))
+                  : const SizedBox.shrink(),
+        ),
+      ),
+    );
+  }
+
+  // ---------------- UI (NO CUT-OFF FIX) ----------------
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 320,
-      height: 320,
-      child: GridView.builder(
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: cols,
-          crossAxisSpacing: 4,
-          mainAxisSpacing: 4,
-        ),
-        itemCount: rows * cols,
-        itemBuilder: (context, index) {
-          final r = index ~/ cols;
-          final c = index % cols;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const double padding = 16;
 
-          final tile = board[r][c];
+        final maxW = constraints.maxWidth - padding * 2;
+        final maxH = constraints.maxHeight - padding * 2;
 
-          return GestureDetector(
-            onTap: () => _revealTile(r, c),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              decoration: BoxDecoration(
-                color: tile.isRevealed
-                    ? (tile.isMine
-                        ? Colors.redAccent
-                        : Colors.grey[300])
-                    : Colors.deepPurple,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Center(
-                child: tile.isRevealed
-                    ? (tile.isMine
-                        ? const Text('💣', style: TextStyle(fontSize: 18))
-                        : (tile.adjacentMines > 0
-                            ? Text(
-                                '${tile.adjacentMines}',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.blue,
-                                ),
-                              )
-                            : const SizedBox.shrink()))
-                    : const SizedBox.shrink(),
+        // 🔥 TRUE SAFE FIT (no forced square, no overflow)
+        final tileSize = min(
+          maxW / widget.cols,
+          maxH / widget.rows,
+        );
+
+        final gridWidth = tileSize * widget.cols;
+        final gridHeight = tileSize * widget.rows;
+
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(padding),
+            child: FittedBox(
+              fit: BoxFit.contain, // 🔥 prevents any cut-off
+              child: SizedBox(
+                width: gridWidth,
+                height: gridHeight,
+                child: GridView.builder(
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: widget.cols,
+                    crossAxisSpacing: 2,
+                    mainAxisSpacing: 2,
+                    childAspectRatio: 1,
+                  ),
+                  itemCount: widget.rows * widget.cols,
+                  itemBuilder: (context, index) {
+                    final r = index ~/ widget.cols;
+                    final c = index % widget.cols;
+
+                    final tile = board[r][c];
+
+                    return GestureDetector(
+                      onTap: () => _revealTile(r, c),
+                      onLongPress: () => _toggleFlag(r, c),
+
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 120),
+                        decoration: BoxDecoration(
+                          color: tile.isRevealed
+                              ? (tile.isMine
+                                  ? Colors.redAccent
+                                  : Colors.grey[300])
+                              : (tile.isFlagged
+                                  ? Colors.yellow[700]
+                                  : Colors.deepPurple),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+
+                        child: Center(
+                          child: _buildTile(tile, tileSize * 0.55),
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
