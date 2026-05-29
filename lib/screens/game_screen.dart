@@ -43,6 +43,8 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   void _resetGame() {
+    _stopTimer();
+
     setState(() {
       seconds = 0;
       resetKey++;
@@ -52,8 +54,8 @@ class _GameScreenState extends State<GameScreen> {
     _startTimer();
   }
 
-  void _setFace(FaceState f) {
-    setState(() => face = f);
+  void _setFace(FaceState state) {
+    setState(() => face = state);
   }
 
   String _emoji() {
@@ -80,54 +82,49 @@ class _GameScreenState extends State<GameScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final maxMines =
-                (tempRows * tempCols * 0.35).floor().clamp(1, 999);
-
-            // 🔥 CRITICAL FIX: clamp value BEFORE slider renders
-            tempMines = tempMines.clamp(1, maxMines);
+            final maxMines = (tempRows * tempCols) - 1;
+            if (tempMines > maxMines) tempMines = maxMines;
 
             return AlertDialog(
               title: const Text("Game Settings"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _slider(
-                    label: "Rows",
-                    value: tempRows.toDouble(),
-                    min: 5,
-                    max: 20,
-                    onChanged: (v) {
-                      setDialogState(() => tempRows = v.toInt());
-                    },
-                  ),
-                  _slider(
-                    label: "Cols",
-                    value: tempCols.toDouble(),
-                    min: 5,
-                    max: 20,
-                    onChanged: (v) {
-                      setDialogState(() => tempCols = v.toInt());
-                    },
-                  ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text("Rows: $tempRows"),
+                    Slider(
+                      value: tempRows.toDouble(),
+                      min: 5,
+                      max: 20,
+                      divisions: 15,
+                      onChanged: (v) {
+                        setDialogState(() => tempRows = v.toInt());
+                      },
+                    ),
 
-                  // ---------------- FIXED MINES SLIDER ----------------
-                  Column(
-                    children: [
-                      Text("Mines: $tempMines"),
-                      Slider(
-                        value: tempMines.toDouble(),
-                        min: 1,
-                        max: maxMines.toDouble(),
-                        divisions: (maxMines - 1).clamp(1, 200),
-                        onChanged: (v) {
-                          setDialogState(() {
-                            tempMines = v.toInt().clamp(1, maxMines);
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ],
+                    Text("Columns: $tempCols"),
+                    Slider(
+                      value: tempCols.toDouble(),
+                      min: 5,
+                      max: 20,
+                      divisions: 15,
+                      onChanged: (v) {
+                        setDialogState(() => tempCols = v.toInt());
+                      },
+                    ),
+
+                    Text("Mines: $tempMines"),
+                    Slider(
+                      value: tempMines.toDouble(),
+                      min: 1,
+                      max: (tempRows * tempCols - 1).toDouble(),
+                      divisions: (tempRows * tempCols - 2).clamp(1, 400),
+                      onChanged: (v) {
+                        setDialogState(() => tempMines = v.toInt());
+                      },
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -139,18 +136,16 @@ class _GameScreenState extends State<GameScreen> {
                     setState(() {
                       rows = tempRows;
                       cols = tempCols;
+                      mines = tempMines;
 
-                      final maxMines =
-                          (rows * cols * 0.35).floor().clamp(1, 999);
-
-                      mines = tempMines.clamp(1, maxMines);
-
-                      resetKey++;
                       seconds = 0;
+                      resetKey++;
                       face = FaceState.happy;
                     });
 
+                    _stopTimer();
                     _startTimer();
+
                     Navigator.pop(context);
                   },
                   child: const Text("Apply"),
@@ -163,38 +158,20 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _slider({
-    required String label,
-    required double value,
-    required double min,
-    required double max,
-    required Function(double) onChanged,
-  }) {
-    return Column(
-      children: [
-        Text("$label: ${value.toInt()}"),
-        Slider(
-          value: value.clamp(min, max),
-          min: min,
-          max: max,
-          divisions: (max - min).toInt().clamp(1, 100),
-          onChanged: onChanged,
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final panelWidth = screenWidth.clamp(320.0, 700.0);
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: Column(
-        children: [
-          const Spacer(),
 
-          Center(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
             child: Container(
-              width: 420,
+              width: panelWidth,
+              margin: const EdgeInsets.all(12),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: const Color(0xFF1E1E1E),
@@ -202,8 +179,8 @@ class _GameScreenState extends State<GameScreen> {
                 border: Border.all(color: Colors.deepPurple),
               ),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 children: [
+                  // HEADER
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -211,52 +188,59 @@ class _GameScreenState extends State<GameScreen> {
                         seconds.toString().padLeft(3, '0'),
                         style: const TextStyle(
                           color: Colors.redAccent,
-                          fontFamily: 'monospace',
                           fontWeight: FontWeight.bold,
+                          fontSize: 20,
                         ),
                       ),
 
                       IconButton(
                         onPressed: _resetGame,
-                        icon: Text(_emoji(),
-                            style: const TextStyle(fontSize: 22)),
+                        icon: Text(
+                          _emoji(),
+                          style: const TextStyle(fontSize: 28),
+                        ),
                       ),
 
+                      // ✅ SETTINGS RESTORED
                       IconButton(
                         onPressed: _openSettings,
-                        icon: const Icon(Icons.settings, color: Colors.white),
+                        icon: const Icon(
+                          Icons.settings,
+                          color: Colors.white,
+                        ),
                       ),
                     ],
                   ),
 
                   const SizedBox(height: 12),
 
-                  GameBoard(
-                    resetKey: resetKey,
-                    rows: rows,
-                    cols: cols,
-                    mineCount: mines,
-                    onStart: () {
-                      if (face == FaceState.happy) {
-                        setState(() => face = FaceState.shocked);
-                      }
-                    },
-                    onLose: () {
-                      _stopTimer();
-                      _setFace(FaceState.lose);
-                    },
-                    onWin: () {
-                      _stopTimer();
-                      _setFace(FaceState.win);
-                    },
+                  SizedBox(
+                    height: MediaQuery.of(context).size.height * 0.75,
+                    child: GameBoard(
+                      resetKey: resetKey,
+                      rows: rows,
+                      cols: cols,
+                      mineCount: mines,
+                      onStart: () {
+                        if (face == FaceState.happy) {
+                          _setFace(FaceState.shocked);
+                        }
+                      },
+                      onLose: () {
+                        _stopTimer();
+                        _setFace(FaceState.lose);
+                      },
+                      onWin: () {
+                        _stopTimer();
+                        _setFace(FaceState.win);
+                      },
+                    ),
                   ),
                 ],
               ),
             ),
           ),
-
-          const Spacer(),
-        ],
+        ),
       ),
     );
   }
